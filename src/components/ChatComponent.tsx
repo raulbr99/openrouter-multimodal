@@ -25,9 +25,38 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [model, setModel] = useState(chatModels[0] || 'openai/gpt-4o');
-  const [webSearch, setWebSearch] = useState(false);
+  const [webSearchMode, setWebSearchMode] = useState<'auto' | 'on' | 'off'>('auto');
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId || null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Detecta si el mensaje necesita búsqueda web
+  const needsWebSearch = (message: string): boolean => {
+    const lowerMessage = message.toLowerCase();
+
+    // Palabras clave que indican necesidad de información actual
+    const webSearchKeywords = [
+      // Temporal
+      'hoy', 'ayer', 'ahora', 'actual', 'actualmente', 'reciente', 'últim', 'nuevo',
+      'today', 'yesterday', 'now', 'current', 'currently', 'recent', 'latest', 'new',
+      '2024', '2025', '2026',
+      // Noticias y eventos
+      'noticia', 'news', 'evento', 'event', 'pasó', 'happened', 'sucedió',
+      // Precios y datos en tiempo real
+      'precio', 'price', 'cotización', 'bolsa', 'stock', 'bitcoin', 'crypto', 'dólar', 'euro',
+      // Clima
+      'clima', 'weather', 'temperatura', 'pronóstico', 'forecast',
+      // Deportes
+      'partido', 'match', 'resultado', 'score', 'ganó', 'won', 'perdió', 'lost',
+      // Búsqueda explícita
+      'busca', 'search', 'encuentra', 'find', 'investiga', 'google',
+      // Preguntas sobre estado actual
+      'quién es el presidente', 'who is the president', 'quién ganó', 'who won',
+      'cuánto cuesta', 'how much', 'cuál es el precio', 'what is the price',
+      'qué pasó', 'what happened', 'últimas noticias', 'breaking news',
+    ];
+
+    return webSearchKeywords.some(keyword => lowerMessage.includes(keyword));
+  };
 
   // Cargar conversación existente
   useEffect(() => {
@@ -109,12 +138,16 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
     }
 
     try {
+      // Determinar si usar búsqueda web
+      const useWebSearch = webSearchMode === 'on' ||
+        (webSearchMode === 'auto' && needsWebSearch(input));
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: newMessages,
-          model: webSearch ? `${model}:online` : model
+          model: useWebSearch ? `${model}:online` : model
         }),
       });
 
@@ -264,17 +297,27 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
               </div>
             </div>
             <button
-              onClick={() => setWebSearch(!webSearch)}
-              className={`p-3 rounded-xl transition-all flex items-center gap-2 ${
-                webSearch
+              onClick={() => {
+                const modes: Array<'auto' | 'on' | 'off'> = ['auto', 'on', 'off'];
+                const currentIndex = modes.indexOf(webSearchMode);
+                setWebSearchMode(modes[(currentIndex + 1) % 3]);
+              }}
+              className={`p-3 rounded-xl transition-all flex items-center gap-1.5 text-xs font-medium ${
+                webSearchMode === 'on'
                   ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
-                  : 'bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700'
+                  : webSearchMode === 'auto'
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800'
+                  : 'bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600'
               }`}
-              title={webSearch ? 'Búsqueda web activada' : 'Activar búsqueda web'}
+              title={
+                webSearchMode === 'auto' ? 'Web: Automático (detecta cuándo buscar)' :
+                webSearchMode === 'on' ? 'Web: Siempre activado' : 'Web: Desactivado'
+              }
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
               </svg>
+              {webSearchMode === 'auto' ? 'Auto' : webSearchMode === 'on' ? 'On' : 'Off'}
             </button>
             <div className="flex-1 relative">
               <input
