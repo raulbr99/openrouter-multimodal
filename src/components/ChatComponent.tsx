@@ -124,21 +124,49 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
         body: JSON.stringify({ messages: newMessages, model }),
       });
 
-      const data = await response.json();
-
-      if (data.error) {
-        throw new Error(data.error);
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Error en la respuesta');
       }
 
-      const assistantContent = data.choices[0].message.content;
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: assistantContent,
-      };
-      setMessages([...newMessages, assistantMessage]);
+      // Handle streaming response
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader available');
+
+      const decoder = new TextDecoder();
+      let assistantContent = '';
+
+      // Add empty assistant message that we'll update
+      setMessages([...newMessages, { role: 'assistant', content: '' }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+
+          const data = trimmed.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.content) {
+              assistantContent += parsed.content;
+              setMessages([...newMessages, { role: 'assistant', content: assistantContent }]);
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        }
+      }
 
       // Guardar respuesta del asistente
-      if (convId) {
+      if (convId && assistantContent) {
         await saveMessage(convId, 'assistant', assistantContent);
       }
     } catch (error) {
@@ -196,34 +224,21 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                     </p>
                     {msg.role === 'user' ? (
                       <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{msg.content as string}</p>
-                    ) : (
+                    ) : (msg.content as string) ? (
                       <div className="prose prose-gray dark:prose-invert max-w-none">
                         <MarkdownRenderer content={msg.content as string} />
+                      </div>
+                    ) : (
+                      <div className="flex gap-1">
+                        <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                       </div>
                     )}
                   </div>
                 </div>
               </div>
             ))}
-            {loading && (
-              <div className="py-6 bg-white dark:bg-gray-800 -mx-4 px-4 border-y border-gray-200 dark:border-gray-700">
-                <div className="flex gap-4">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-sm text-gray-900 dark:text-white mb-1">Asistente</p>
-                    <div className="flex gap-1">
-                      <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
             <div ref={messagesEndRef} />
           </div>
         )}
