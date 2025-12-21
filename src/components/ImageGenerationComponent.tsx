@@ -87,17 +87,15 @@ export default function ImageGenerationComponent({ defaultMode }: Props) {
 
       setGeneratedImage(imageUrl);
 
-      // Guardar imagen en la base de datos (solo si es modo generar, no editar)
-      if (mode === 'generate') {
-        try {
-          await fetch('/api/images', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, model, imageUrl }),
-          });
-        } catch (saveError) {
-          console.error('Error saving image:', saveError);
-        }
+      // Guardar imagen en la base de datos
+      try {
+        await fetch('/api/images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, model, imageUrl }),
+        });
+      } catch (saveError) {
+        console.error('Error saving image:', saveError);
       }
     } catch (err) {
       console.error('Error:', err);
