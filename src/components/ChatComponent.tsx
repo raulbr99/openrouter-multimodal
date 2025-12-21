@@ -18,16 +18,27 @@ interface Props {
   onConversationCreated?: (id: string) => void;
 }
 
+interface ChatMessage extends Message {
+  reasoning?: string;
+}
+
 export default function ChatComponent({ conversationId, onConversationCreated }: Props) {
   const { getModelsForCategory } = useModels();
   const chatModels = getModelsForCategory('chat');
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [model, setModel] = useState(chatModels[0] || 'openai/gpt-4o');
   const [webSearchMode, setWebSearchMode] = useState<'auto' | 'on' | 'off'>('auto');
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId || null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Parámetros de generación
+  const [temperature, setTemperature] = useState(1);
+  const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
+  const [reasoning, setReasoning] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showReasoning, setShowReasoning] = useState<Record<number, boolean>>({});
 
   // Detecta si el mensaje necesita búsqueda web
   const needsWebSearch = (message: string): boolean => {
@@ -147,7 +158,10 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: newMessages,
-          model: useWebSearch ? `${model}:online` : model
+          model: useWebSearch ? `${model}:online` : model,
+          temperature,
+          maxTokens,
+          reasoning,
         }),
       });
 
@@ -162,9 +176,10 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
 
       const decoder = new TextDecoder();
       let assistantContent = '';
+      let assistantReasoning = '';
 
       // Add empty assistant message that we'll update
-      setMessages([...newMessages, { role: 'assistant', content: '' }]);
+      setMessages([...newMessages, { role: 'assistant', content: '', reasoning: '' }]);
 
       while (true) {
         const { done, value } = await reader.read();
@@ -184,8 +199,15 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
             const parsed = JSON.parse(data);
             if (parsed.content) {
               assistantContent += parsed.content;
-              setMessages([...newMessages, { role: 'assistant', content: assistantContent }]);
             }
+            if (parsed.reasoning) {
+              assistantReasoning += parsed.reasoning;
+            }
+            setMessages([...newMessages, {
+              role: 'assistant',
+              content: assistantContent,
+              reasoning: assistantReasoning
+            }]);
           } catch {
             // Ignore parse errors
           }
@@ -254,9 +276,36 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                   >
                     {msg.role === 'user' ? (
                       <p className="whitespace-pre-wrap">{msg.content as string}</p>
-                    ) : (msg.content as string) ? (
-                      <div className="prose prose-gray dark:prose-invert max-w-none">
-                        <MarkdownRenderer content={msg.content as string} />
+                    ) : (msg.content as string) || msg.reasoning ? (
+                      <div>
+                        {/* Reasoning block */}
+                        {msg.reasoning && (
+                          <div className="mb-3">
+                            <button
+                              onClick={() => setShowReasoning(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                              className="flex items-center gap-2 text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 mb-2"
+                            >
+                              <svg className={`w-3 h-3 transition-transform ${showReasoning[idx] ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                              Pensamiento del modelo
+                            </button>
+                            {showReasoning[idx] && (
+                              <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800 text-sm text-purple-800 dark:text-purple-200 whitespace-pre-wrap">
+                                {msg.reasoning}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {/* Main content */}
+                        {(msg.content as string) && (
+                          <div className="prose prose-gray dark:prose-invert max-w-none">
+                            <MarkdownRenderer content={msg.content as string} />
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex gap-1 py-2">
@@ -319,6 +368,90 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
               </svg>
               {webSearchMode === 'auto' ? 'Auto' : webSearchMode === 'on' ? 'On' : 'Off'}
             </button>
+            {/* Settings button */}
+            <div className="relative">
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className={`p-3 rounded-xl transition-all ${
+                  showSettings
+                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800'
+                    : 'bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600 hover:border-purple-300'
+                }`}
+                title="Configuración"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                </svg>
+              </button>
+              {/* Settings panel */}
+              {showSettings && (
+                <div className="absolute bottom-full mb-2 right-0 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-10">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Configuración</h3>
+
+                  {/* Temperature */}
+                  <div className="mb-4">
+                    <div className="flex justify-between text-sm mb-1">
+                      <label className="text-gray-600 dark:text-gray-400">Temperatura</label>
+                      <span className="text-gray-900 dark:text-white font-medium">{temperature.toFixed(1)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      value={temperature}
+                      onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                      className="w-full accent-purple-600"
+                    />
+                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                      <span>Preciso</span>
+                      <span>Creativo</span>
+                    </div>
+                  </div>
+
+                  {/* Max Tokens */}
+                  <div className="mb-4">
+                    <div className="flex justify-between text-sm mb-1">
+                      <label className="text-gray-600 dark:text-gray-400">Longitud máxima</label>
+                      <span className="text-gray-900 dark:text-white font-medium">{maxTokens || 'Auto'}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="4096"
+                      step="256"
+                      value={maxTokens || 0}
+                      onChange={(e) => setMaxTokens(parseInt(e.target.value) || undefined)}
+                      className="w-full accent-purple-600"
+                    />
+                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                      <span>Auto</span>
+                      <span>4096 tokens</span>
+                    </div>
+                  </div>
+
+                  {/* Reasoning */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">Mostrar razonamiento</label>
+                      <p className="text-xs text-gray-400">Ver proceso de pensamiento</p>
+                    </div>
+                    <button
+                      onClick={() => setReasoning(!reasoning)}
+                      className={`relative w-11 h-6 rounded-full transition-colors ${
+                        reasoning ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                          reasoning ? 'translate-x-5' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="flex-1 relative">
               <input
                 type="text"

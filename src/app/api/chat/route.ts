@@ -1,8 +1,38 @@
 import { NextRequest } from 'next/server';
 
+interface ChatRequest {
+  messages: Array<{ role: string; content: string }>;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  reasoning?: boolean;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { messages, model = 'openai/gpt-4o' } = await request.json();
+    const {
+      messages,
+      model = 'openai/gpt-4o',
+      temperature = 1,
+      maxTokens,
+      reasoning = false
+    }: ChatRequest = await request.json();
+
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages,
+      stream: true,
+      temperature,
+    };
+
+    if (maxTokens) {
+      requestBody.max_tokens = maxTokens;
+    }
+
+    // Añadir reasoning si está activado
+    if (reasoning) {
+      requestBody.reasoning = { effort: 'medium' };
+    }
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -12,11 +42,7 @@ export async function POST(request: NextRequest) {
         'HTTP-Referer': 'http://localhost:3000',
         'X-Title': 'OpenRouter Multimodal App',
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: true,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -60,9 +86,16 @@ export async function POST(request: NextRequest) {
 
                 try {
                   const parsed = JSON.parse(data);
-                  const content = parsed.choices?.[0]?.delta?.content;
-                  if (content) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
+                  const delta = parsed.choices?.[0]?.delta;
+
+                  // Contenido normal
+                  if (delta?.content) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: delta.content })}\n\n`));
+                  }
+
+                  // Contenido de razonamiento
+                  if (delta?.reasoning) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ reasoning: delta.reasoning })}\n\n`));
                   }
                 } catch {
                   // Ignore parse errors for comments/keepalives
