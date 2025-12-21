@@ -268,7 +268,7 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                     </div>
                   )}
                   <div
-                    className={`${
+                    className={`text-sm ${
                       msg.role === 'user'
                         ? 'rounded-2xl px-4 py-3 bg-purple-600 text-white rounded-br-md'
                         : 'flex-1 text-gray-900 dark:text-gray-100 pt-1'
@@ -302,7 +302,7 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                         )}
                         {/* Main content */}
                         {(msg.content as string) && (
-                          <div className="prose prose-gray dark:prose-invert max-w-none">
+                          <div className="prose prose-sm prose-gray dark:prose-invert max-w-none">
                             <MarkdownRenderer content={msg.content as string} />
                           </div>
                         )}
