@@ -119,12 +119,17 @@ export default function Sidebar() {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (days === 0) return 'Hoy';
-    if (days === 1) return 'Ayer';
-    if (days < 7) return `Hace ${days} días`;
+    const time = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+    // Comparar solo las fechas (sin hora)
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffDays = Math.floor((nowOnly.getTime() - dateOnly.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return `Hoy, ${time}`;
+    if (diffDays === 1) return `Ayer, ${time}`;
+    if (diffDays < 7) return `Hace ${diffDays} días`;
     return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
   };
 
