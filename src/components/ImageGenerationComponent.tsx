@@ -291,17 +291,47 @@ export default function ImageGenerationComponent({ defaultMode }: Props) {
               alt="Imagen generada"
               className="w-full rounded-xl"
             />
-            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3">
               <a
                 href={generatedImage}
                 download="imagen-generada.png"
-                className="flex items-center gap-2 px-6 py-3 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 transition-all"
+                className="flex items-center gap-2 px-5 py-2.5 bg-white text-gray-900 font-medium rounded-lg hover:bg-gray-100 transition-all"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
                 Descargar
               </a>
+              <button
+                onClick={() => {
+                  setMode('edit');
+                  setSourceImage(generatedImage);
+                  // Extraer base64 si es una imagen base64, si no, convertirla
+                  if (generatedImage.startsWith('data:')) {
+                    setSourceImageBase64(generatedImage.split(',')[1]);
+                  } else {
+                    // Para URLs externas, usamos fetch para obtener el base64
+                    fetch(generatedImage)
+                      .then(res => res.blob())
+                      .then(blob => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          const result = reader.result as string;
+                          setSourceImageBase64(result.split(',')[1]);
+                        };
+                        reader.readAsDataURL(blob);
+                      });
+                  }
+                  setPrompt('');
+                  setGeneratedImage(null);
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition-all"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Seguir editando
+              </button>
             </div>
           </div>
         </div>
