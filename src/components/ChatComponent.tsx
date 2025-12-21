@@ -247,13 +247,13 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
             <p className="text-sm">Selecciona un modelo y escribe tu mensaje</p>
           </div>
         ) : (
-          <div className="max-w-3xl mx-auto py-6 px-4 space-y-4">
+          <div className="py-6 px-4 space-y-6">
             {messages.map((msg, idx) => (
               <div
                 key={idx}
                 className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div className={`flex gap-3 max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse max-w-[80%]' : 'w-full'}`}>
                   {msg.role === 'assistant' ? (
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -268,10 +268,10 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                     </div>
                   )}
                   <div
-                    className={`rounded-2xl px-4 py-3 ${
+                    className={`${
                       msg.role === 'user'
-                        ? 'bg-purple-600 text-white rounded-br-md'
-                        : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm border border-gray-200 dark:border-gray-700'
+                        ? 'rounded-2xl px-4 py-3 bg-purple-600 text-white rounded-br-md'
+                        : 'flex-1 text-gray-900 dark:text-gray-100 pt-1'
                     }`}
                   >
                     {msg.role === 'user' ? (
