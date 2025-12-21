@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { useModels } from '@/contexts/ModelsContext';
 
 interface OpenRouterModel {
@@ -22,7 +22,7 @@ interface OpenRouterModel {
 
 type Category = 'chat' | 'vision' | 'generate' | 'edit';
 
-const categories: { key: Category; label: string; description: string; icon: JSX.Element }[] = [
+const categories: { key: Category; label: string; description: string; icon: ReactNode }[] = [
   {
     key: 'chat',
     label: 'Chat',
