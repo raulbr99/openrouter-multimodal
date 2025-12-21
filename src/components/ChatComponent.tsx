@@ -25,6 +25,7 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [model, setModel] = useState(chatModels[0] || 'openai/gpt-4o');
+  const [webSearch, setWebSearch] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId || null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -111,7 +112,10 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages, model }),
+        body: JSON.stringify({
+          messages: newMessages,
+          model: webSearch ? `${model}:online` : model
+        }),
       });
 
       if (!response.ok) {
@@ -259,6 +263,19 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                 </svg>
               </div>
             </div>
+            <button
+              onClick={() => setWebSearch(!webSearch)}
+              className={`p-3 rounded-xl transition-all flex items-center gap-2 ${
+                webSearch
+                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                  : 'bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700'
+              }`}
+              title={webSearch ? 'Búsqueda web activada' : 'Activar búsqueda web'}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+              </svg>
+            </button>
             <div className="flex-1 relative">
               <input
                 type="text"
