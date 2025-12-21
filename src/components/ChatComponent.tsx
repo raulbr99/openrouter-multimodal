@@ -198,13 +198,13 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
             <p className="text-sm">Selecciona un modelo y escribe tu mensaje</p>
           </div>
         ) : (
-          <div className="max-w-3xl mx-auto py-6 px-4">
+          <div className="max-w-3xl mx-auto py-6 px-4 space-y-4">
             {messages.map((msg, idx) => (
               <div
                 key={idx}
-                className={`py-6 ${msg.role === 'user' ? '' : 'bg-white dark:bg-gray-800 -mx-4 px-4 border-y border-gray-200 dark:border-gray-700'}`}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div className="flex gap-4">
+                <div className={`flex gap-3 max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                   {msg.role === 'assistant' ? (
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -212,24 +212,27 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                       </svg>
                     </div>
                   ) : (
-                    <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center flex-shrink-0">
                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                       </svg>
                     </div>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-gray-900 dark:text-white mb-1">
-                      {msg.role === 'user' ? 'Tú' : 'Asistente'}
-                    </p>
+                  <div
+                    className={`rounded-2xl px-4 py-3 ${
+                      msg.role === 'user'
+                        ? 'bg-purple-600 text-white rounded-br-md'
+                        : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md shadow-sm border border-gray-200 dark:border-gray-700'
+                    }`}
+                  >
                     {msg.role === 'user' ? (
-                      <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{msg.content as string}</p>
+                      <p className="whitespace-pre-wrap">{msg.content as string}</p>
                     ) : (msg.content as string) ? (
                       <div className="prose prose-gray dark:prose-invert max-w-none">
                         <MarkdownRenderer content={msg.content as string} />
                       </div>
                     ) : (
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 py-2">
                         <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                         <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                         <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
