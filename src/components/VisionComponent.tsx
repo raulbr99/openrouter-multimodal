@@ -2,23 +2,18 @@
 
 import { useState, useRef } from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
-
-const VISION_MODELS = [
-  { id: 'openai/gpt-5.2', name: 'GPT-5.2' },
-  { id: 'anthropic/claude-opus-4.5', name: 'Claude Opus 4.5' },
-  { id: 'google/gemini-3-pro-preview', name: 'Gemini 3 Pro' },
-  { id: 'google/gemini-3-flash-preview', name: 'Gemini 3 Flash' },
-  { id: 'qwen/qwen3-vl-32b-instruct', name: 'Qwen3 VL 32B' },
-];
+import { useModels } from '@/contexts/ModelsContext';
 
 export default function VisionComponent() {
+  const { getModelsForCategory } = useModels();
+  const visionModels = getModelsForCategory('vision');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState('');
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
-  const [model, setModel] = useState(VISION_MODELS[0].id);
+  const [model, setModel] = useState(visionModels[0] || 'openai/gpt-4o');
   const [inputType, setInputType] = useState<'file' | 'url'>('file');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -98,9 +93,9 @@ export default function VisionComponent() {
             onChange={(e) => setModel(e.target.value)}
             className="w-full appearance-none p-3 pr-10 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all cursor-pointer"
           >
-            {VISION_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
+            {visionModels.map((modelId) => (
+              <option key={modelId} value={modelId}>
+                {modelId.split('/').pop()}
               </option>
             ))}
           </select>

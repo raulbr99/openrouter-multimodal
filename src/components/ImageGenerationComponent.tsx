@@ -1,15 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-
-const IMAGE_MODELS = [
-  { id: 'google/gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image' },
-  { id: 'google/gemini-2.5-flash-image', name: 'Gemini 2.5 Flash Image' },
-  { id: 'openai/gpt-5-image', name: 'GPT-5 Image' },
-  { id: 'openai/gpt-5-image-mini', name: 'GPT-5 Image Mini' },
-  { id: 'black-forest-labs/flux.2-pro', name: 'FLUX 2 Pro' },
-  { id: 'sourceful/riverflow-v2-max-preview', name: 'Riverflow V2 Max' },
-];
+import { useModels } from '@/contexts/ModelsContext';
 
 type Mode = 'generate' | 'edit';
 
@@ -18,12 +10,14 @@ interface Props {
 }
 
 export default function ImageGenerationComponent({ defaultMode }: Props) {
+  const { getModelsForCategory } = useModels();
   const [mode, setMode] = useState<Mode>(defaultMode || 'generate');
+  const imageModels = getModelsForCategory(mode === 'generate' ? 'generate' : 'edit');
   const showModeSelector = !defaultMode;
   const [prompt, setPrompt] = useState('');
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [model, setModel] = useState(IMAGE_MODELS[0].id);
+  const [model, setModel] = useState(imageModels[0] || 'openai/dall-e-3');
   const [error, setError] = useState<string | null>(null);
   const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [sourceImageBase64, setSourceImageBase64] = useState<string | null>(null);
@@ -150,9 +144,9 @@ export default function ImageGenerationComponent({ defaultMode }: Props) {
             onChange={(e) => setModel(e.target.value)}
             className="w-full appearance-none p-3 pr-10 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all cursor-pointer"
           >
-            {IMAGE_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
+            {imageModels.map((modelId) => (
+              <option key={modelId} value={modelId}>
+                {modelId.split('/').pop()}
               </option>
             ))}
           </select>
