@@ -3,21 +3,12 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { useState } from 'react';
 
 interface Props {
   content: string;
 }
 
 export default function MarkdownRenderer({ content }: Props) {
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
-
-  const copyToClipboard = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCode(code);
-    setTimeout(() => setCopiedCode(null), 2000);
-  };
-
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -25,26 +16,8 @@ export default function MarkdownRenderer({ content }: Props) {
       components={{
         // Code blocks
         pre({ children, ...props }) {
-          const codeElement = children as React.ReactElement;
-          const code = codeElement?.props?.children || '';
-
           return (
             <div className="relative group my-4">
-              <button
-                onClick={() => copyToClipboard(String(code))}
-                className="absolute top-2 right-2 p-2 bg-gray-700 hover:bg-gray-600 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                title="Copiar código"
-              >
-                {copiedCode === String(code) ? (
-                  <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                )}
-              </button>
               <pre className="bg-gray-900 text-gray-100 rounded-xl p-4 overflow-x-auto text-sm" {...props}>
                 {children}
               </pre>
