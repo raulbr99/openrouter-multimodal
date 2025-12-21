@@ -66,12 +66,19 @@ const categories: { key: Category; label: string; description: string; icon: Rea
   },
 ];
 
+type PriceFilter = 'all' | 'free' | 'low' | 'medium' | 'high';
+type ContextFilter = 'all' | 'short' | 'medium' | 'long';
+
 export default function SettingsPage() {
   const { selectedModels, setSelectedModels } = useModels();
   const [allModels, setAllModels] = useState<OpenRouterModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<Category>('chat');
+  const [providerFilter, setProviderFilter] = useState<string>('all');
+  const [priceFilter, setPriceFilter] = useState<PriceFilter>('all');
+  const [contextFilter, setContextFilter] = useState<ContextFilter>('all');
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     loadModels();
@@ -89,6 +96,15 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getProviders = () => {
+    const providers = new Set<string>();
+    allModels.forEach(m => {
+      const provider = m.id.split('/')[0];
+      if (provider) providers.add(provider);
+    });
+    return Array.from(providers).sort();
   };
 
   const getFilteredModels = () => {
@@ -114,6 +130,34 @@ export default function SettingsPage() {
       );
     }
 
+    // Filter by provider
+    if (providerFilter !== 'all') {
+      filtered = filtered.filter(m => m.id.startsWith(providerFilter + '/'));
+    }
+
+    // Filter by price
+    if (priceFilter !== 'all') {
+      filtered = filtered.filter(m => {
+        const price = parseFloat(m.pricing.prompt);
+        if (priceFilter === 'free') return price === 0;
+        if (priceFilter === 'low') return price > 0 && price < 0.001;
+        if (priceFilter === 'medium') return price >= 0.001 && price < 0.01;
+        if (priceFilter === 'high') return price >= 0.01;
+        return true;
+      });
+    }
+
+    // Filter by context length
+    if (contextFilter !== 'all') {
+      filtered = filtered.filter(m => {
+        const ctx = m.context_length;
+        if (contextFilter === 'short') return ctx < 32000;
+        if (contextFilter === 'medium') return ctx >= 32000 && ctx < 128000;
+        if (contextFilter === 'long') return ctx >= 128000;
+        return true;
+      });
+    }
+
     // Filter by search
     if (search) {
       const searchLower = search.toLowerCase();
@@ -125,6 +169,12 @@ export default function SettingsPage() {
 
     return filtered;
   };
+
+  const activeFiltersCount = [
+    providerFilter !== 'all',
+    priceFilter !== 'all',
+    contextFilter !== 'all'
+  ].filter(Boolean).length;
 
   const toggleModel = (modelId: string) => {
     const current = selectedModels[activeCategory];
@@ -212,20 +262,117 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative">
-          <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar modelos..."
-            className="w-full pl-12 pr-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          />
+      {/* Search and Filters */}
+      <div className="mb-6 space-y-4">
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar modelos..."
+              className="w-full pl-12 pr-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+          </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
+              showFilters || activeFiltersCount > 0
+                ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-700'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-purple-300'
+            }`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            Filtros
+            {activeFiltersCount > 0 && (
+              <span className="px-2 py-0.5 text-xs bg-purple-500 text-white rounded-full">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
         </div>
+
+        {/* Filter Panel */}
+        {showFilters && (
+          <div className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-gray-900 dark:text-white">Filtros</h3>
+              {activeFiltersCount > 0 && (
+                <button
+                  onClick={() => {
+                    setProviderFilter('all');
+                    setPriceFilter('all');
+                    setContextFilter('all');
+                  }}
+                  className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
+                >
+                  Limpiar filtros
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Provider Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Proveedor
+                </label>
+                <select
+                  value={providerFilter}
+                  onChange={(e) => setProviderFilter(e.target.value)}
+                  className="w-full p-2.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="all">Todos</option>
+                  {getProviders().map(provider => (
+                    <option key={provider} value={provider}>
+                      {provider}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Price Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Precio
+                </label>
+                <select
+                  value={priceFilter}
+                  onChange={(e) => setPriceFilter(e.target.value as PriceFilter)}
+                  className="w-full p-2.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="all">Todos</option>
+                  <option value="free">Gratis</option>
+                  <option value="low">Bajo (&lt;$0.001)</option>
+                  <option value="medium">Medio ($0.001-$0.01)</option>
+                  <option value="high">Alto (&gt;$0.01)</option>
+                </select>
+              </div>
+
+              {/* Context Length Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Contexto
+                </label>
+                <select
+                  value={contextFilter}
+                  onChange={(e) => setContextFilter(e.target.value as ContextFilter)}
+                  className="w-full p-2.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="all">Todos</option>
+                  <option value="short">Corto (&lt;32K)</option>
+                  <option value="medium">Medio (32K-128K)</option>
+                  <option value="long">Largo (&gt;128K)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Models Grid */}
