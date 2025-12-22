@@ -20,6 +20,7 @@ interface Props {
 
 interface ChatMessage extends Message {
   reasoning?: string;
+  images?: string[];
 }
 
 export default function ChatComponent({ conversationId, onConversationCreated }: Props) {
@@ -32,6 +33,7 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
   const [webSearchMode, setWebSearchMode] = useState<'auto' | 'on' | 'off'>('auto');
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId || null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Parámetros de generación
   const [temperature, setTemperature] = useState(1);
@@ -40,6 +42,7 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
   const [showSettings, setShowSettings] = useState(false);
   const [showReasoning, setShowReasoning] = useState<Record<number, boolean>>({});
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [attachedImages, setAttachedImages] = useState<string[]>([]);
 
   // Detecta si el mensaje necesita búsqueda web
   const needsWebSearch = (message: string): boolean => {
@@ -129,13 +132,54 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
     }
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+  const handleImageUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setAttachedImages(prev => [...prev, base64]);
+    };
+    reader.readAsDataURL(file);
+  };
 
-    const userMessage: Message = { role: 'user', content: input };
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        if (file) handleImageUpload(file);
+        break;
+      }
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      Array.from(files).forEach(handleImageUpload);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setAttachedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const sendMessage = async () => {
+    if ((!input.trim() && attachedImages.length === 0) || loading) return;
+
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content: input,
+      images: attachedImages.length > 0 ? attachedImages : undefined
+    };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput('');
+    setAttachedImages([]);
     setLoading(true);
 
     // Crear conversación si es la primera
@@ -154,11 +198,28 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
       const useWebSearch = webSearchMode === 'on' ||
         (webSearchMode === 'auto' && needsWebSearch(input));
 
+      // Preparar mensajes con imágenes en formato multimodal
+      const apiMessages = newMessages.map(msg => {
+        if (msg.images && msg.images.length > 0) {
+          return {
+            role: msg.role,
+            content: [
+              ...msg.images.map(img => ({
+                type: 'image_url',
+                image_url: { url: img }
+              })),
+              { type: 'text', text: msg.content || 'Describe esta imagen' }
+            ]
+          };
+        }
+        return { role: msg.role, content: msg.content };
+      });
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages,
+          messages: apiMessages,
           model: useWebSearch ? `${model}:online` : model,
           temperature,
           maxTokens,
@@ -276,7 +337,23 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                     }`}
                   >
                     {msg.role === 'user' ? (
-                      <p className="whitespace-pre-wrap">{msg.content as string}</p>
+                      <div>
+                        {msg.images && msg.images.length > 0 && (
+                          <div className="flex gap-2 mb-2 flex-wrap">
+                            {msg.images.map((img, imgIdx) => (
+                              <img
+                                key={imgIdx}
+                                src={img}
+                                alt={`Imagen ${imgIdx + 1}`}
+                                className="max-w-[200px] max-h-[150px] object-cover rounded-lg"
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {(msg.content as string) && (
+                          <p className="whitespace-pre-wrap">{msg.content as string}</p>
+                        )}
+                      </div>
                     ) : (msg.content as string) || msg.reasoning ? (
                       <div>
                         {/* Reasoning block */}
@@ -499,32 +576,74 @@ export default function ChatComponent({ conversationId, onConversationCreated }:
                 </div>
               )}
             </div>
-            <div className="flex-1 relative">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                placeholder="Escribe tu mensaje..."
-                className="w-full p-3 pr-12 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                disabled={loading}
-              />
-              <button
-                onClick={sendMessage}
-                disabled={loading || !input.trim()}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                {loading ? (
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            <div className="flex-1">
+              {/* Image Preview */}
+              {attachedImages.length > 0 && (
+                <div className="flex gap-2 mb-2 flex-wrap">
+                  {attachedImages.map((img, idx) => (
+                    <div key={idx} className="relative group">
+                      <img
+                        src={img}
+                        alt={`Adjunto ${idx + 1}`}
+                        className="w-16 h-16 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
+                      />
+                      <button
+                        onClick={() => removeImage(idx)}
+                        className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="relative flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-3 text-gray-500 hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition-all"
+                  title="Adjuntar imagen"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
-                  </svg>
-                )}
-              </button>
+                </button>
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                  onPaste={handlePaste}
+                  placeholder={attachedImages.length > 0 ? "Añade un mensaje o envía la imagen..." : "Escribe tu mensaje o pega una imagen..."}
+                  className="flex-1 p-3 pr-12 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                  disabled={loading}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={loading || (!input.trim() && attachedImages.length === 0)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {loading ? (
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
             {messages.length > 0 && (
               <button
