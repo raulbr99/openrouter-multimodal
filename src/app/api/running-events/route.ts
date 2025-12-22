@@ -49,7 +49,10 @@ export async function POST(request: NextRequest) {
       .insert(runningEvents)
       .values({
         date: body.date,
+        category: body.category || 'running',
         type: body.type,
+        title: body.title || null,
+        time: body.time || null,
         distance: body.distance || null,
         duration: body.duration || null,
         pace: body.pace || null,
@@ -76,7 +79,10 @@ export async function PUT(request: NextRequest) {
       .update(runningEvents)
       .set({
         date: body.date,
+        category: body.category || 'running',
         type: body.type,
+        title: body.title || null,
+        time: body.time || null,
         distance: body.distance || null,
         duration: body.duration || null,
         pace: body.pace || null,

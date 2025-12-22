@@ -41,7 +41,10 @@ export const visionAnalyses = pgTable('vision_analyses', {
 export const runningEvents = pgTable('running_events', {
   id: uuid('id').primaryKey().defaultRandom(),
   date: date('date').notNull(),
-  type: text('type').notNull(), // 'easy' | 'tempo' | 'intervals' | 'long' | 'rest' | 'race' | 'strength'
+  category: text('category').default('running').notNull(), // 'running' | 'personal'
+  type: text('type').notNull(), // running: 'easy' | 'tempo' | etc. personal: 'event' | 'appointment' | 'task' | etc.
+  title: text('title'), // para eventos personales
+  time: text('time'), // hora del evento "14:30"
   distance: real('distance'), // km
   duration: integer('duration'), // minutos
   pace: text('pace'), // min/km formato "5:30"
