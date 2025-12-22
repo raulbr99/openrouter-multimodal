@@ -342,9 +342,14 @@ export default function CalendarPage() {
                 <div className="mt-1 space-y-1">
                   {dayEvents.map((event) => {
                     const eventType = getEventType(event.category || 'running', event.type);
-                    const displayText = event.category === 'personal'
-                      ? (event.title || eventType.label).slice(0, 8)
-                      : event.distance ? `${event.distance}km` : eventType.label.slice(0, 6);
+                    let displayText;
+                    if (event.category === 'personal') {
+                      displayText = (event.title || eventType.label).slice(0, 8);
+                    } else if (event.type === 'race' && event.title) {
+                      displayText = event.title.slice(0, 8);
+                    } else {
+                      displayText = event.distance ? `${event.distance}km` : eventType.label.slice(0, 6);
+                    }
                     return (
                       <div
                         key={event.id}
@@ -465,6 +470,22 @@ export default function CalendarPage() {
                         ))}
                       </div>
                     </div>
+
+                    {/* Race Name (only for race type) */}
+                    {formData.type === 'race' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Nombre de la carrera
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.title}
+                          onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                          className="w-full p-2 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                          placeholder="Ej: Maratón de Valencia"
+                        />
+                      </div>
+                    )}
 
                     {/* Distance & Duration */}
                     <div className="grid grid-cols-2 gap-4">
