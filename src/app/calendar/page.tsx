@@ -234,7 +234,7 @@ export default function CalendarPage() {
   const personalEventsCount = events.filter(e => e.category === 'personal').length;
 
   return (
-    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-2">
@@ -301,9 +301,9 @@ export default function CalendarPage() {
         </div>
 
         {/* Days Header */}
-        <div className="grid grid-cols-7 border-b border-gray-200 dark:border-gray-700">
+        <div className="grid grid-cols-7 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
           {DAYS.map((day) => (
-            <div key={day} className="py-2 sm:py-3 text-center text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">
+            <div key={day} className="py-3 sm:py-4 text-center text-xs sm:text-sm font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
               {day}
             </div>
           ))}
@@ -321,7 +321,7 @@ export default function CalendarPage() {
               <div
                 key={index}
                 onClick={() => item.currentMonth && openModal(dateStr)}
-                className={`min-h-[70px] sm:min-h-[90px] p-1 sm:p-2 border-b border-r border-gray-100 dark:border-gray-700 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50 ${
+                className={`min-h-[80px] sm:min-h-[100px] lg:min-h-[120px] p-1.5 sm:p-2 lg:p-3 border-b border-r border-gray-100 dark:border-gray-700 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50 ${
                   index % 7 === 6 ? 'border-r-0' : ''
                 } ${index >= 35 ? 'border-b-0' : ''}`}
               >
@@ -349,11 +349,11 @@ export default function CalendarPage() {
                     const eventType = getEventType(event.category || 'running', event.type);
                     let displayText;
                     if (event.category === 'personal') {
-                      displayText = (event.title || eventType.label).slice(0, 8);
+                      displayText = event.title || eventType.label;
                     } else if (event.type === 'race' && event.title) {
-                      displayText = event.title.slice(0, 8);
+                      displayText = event.title;
                     } else {
-                      displayText = event.distance ? `${event.distance}km` : eventType.label.slice(0, 6);
+                      displayText = event.distance ? `${event.distance}km` : eventType.label;
                     }
                     return (
                       <div
@@ -362,13 +362,15 @@ export default function CalendarPage() {
                           e.stopPropagation();
                           openModal(dateStr, event);
                         }}
-                        className={`text-xs p-1 rounded ${eventType.color} text-white truncate ${
+                        className={`text-xs sm:text-sm p-1 sm:p-1.5 rounded-md ${eventType.color} text-white truncate ${
                           event.completed ? 'opacity-100' : 'opacity-60 border border-dashed border-white/50'
                         }`}
+                        title={displayText}
                       >
-                        <span className="hidden sm:inline">{eventType.icon} </span>
-                        {event.time && <span className="text-[10px] opacity-80">{event.time} </span>}
-                        {displayText}
+                        <span className="mr-1">{eventType.icon}</span>
+                        {event.time && <span className="text-[10px] sm:text-xs opacity-80 mr-1">{event.time}</span>}
+                        <span className="hidden sm:inline">{displayText}</span>
+                        <span className="sm:hidden">{displayText.slice(0, 6)}</span>
                       </div>
                     );
                   })}
