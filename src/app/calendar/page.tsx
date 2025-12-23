@@ -78,9 +78,14 @@ export default function CalendarPage() {
     try {
       const res = await fetch(`/api/running-events?year=${year}&month=${month + 1}`);
       const data = await res.json();
-      setEvents(data);
+      if (res.ok && Array.isArray(data)) {
+        setEvents(data);
+      } else {
+        setEvents([]);
+      }
     } catch (error) {
       console.error('Error loading events:', error);
+      setEvents([]);
     } finally {
       setLoading(false);
     }
