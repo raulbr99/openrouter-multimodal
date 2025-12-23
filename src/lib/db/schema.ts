@@ -38,6 +38,41 @@ export const visionAnalyses = pgTable('vision_analyses', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Perfil de corredor (memoria persistente)
+export const runnerProfile = pgTable('runner_profile', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Datos personales
+  name: text('name'),
+  age: integer('age'),
+  weight: real('weight'), // kg
+  height: integer('height'), // cm
+  // Experiencia
+  yearsRunning: integer('years_running'),
+  weeklyKm: real('weekly_km'), // km/semana habitual
+  // Marcas personales
+  pb5k: text('pb_5k'), // formato "20:30"
+  pb10k: text('pb_10k'),
+  pbHalfMarathon: text('pb_half_marathon'),
+  pbMarathon: text('pb_marathon'),
+  // Objetivos
+  currentGoal: text('current_goal'), // objetivo actual
+  targetRace: text('target_race'), // carrera objetivo
+  targetDate: date('target_date'), // fecha objetivo
+  targetTime: text('target_time'), // tiempo objetivo
+  // Salud y limitaciones
+  injuries: text('injuries'), // lesiones pasadas/actuales
+  healthNotes: text('health_notes'), // notas de salud
+  // Preferencias
+  preferredTerrain: text('preferred_terrain'), // asfalto, trail, mixto
+  availableDays: text('available_days'), // días disponibles para entrenar
+  maxTimePerSession: integer('max_time_per_session'), // minutos
+  // Notas adicionales del entrenador AI
+  coachNotes: text('coach_notes'), // notas que el AI guarda sobre el usuario
+  // Timestamps
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Eventos de running
 export const runningEvents = pgTable('running_events', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -68,3 +103,5 @@ export type VisionAnalysis = typeof visionAnalyses.$inferSelect;
 export type NewVisionAnalysis = typeof visionAnalyses.$inferInsert;
 export type RunningEvent = typeof runningEvents.$inferSelect;
 export type NewRunningEvent = typeof runningEvents.$inferInsert;
+export type RunnerProfile = typeof runnerProfile.$inferSelect;
+export type NewRunnerProfile = typeof runnerProfile.$inferInsert;

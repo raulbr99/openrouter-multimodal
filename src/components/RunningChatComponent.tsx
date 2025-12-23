@@ -5,7 +5,32 @@ import { Message } from '@/types/openrouter';
 import MarkdownRenderer from './MarkdownRenderer';
 import { useModels } from '@/contexts/ModelsContext';
 
-const RUNNING_SYSTEM_PROMPT = `Eres un entrenador experto en running y un asistente especializado en todo lo relacionado con el mundo del running. Tu conocimiento incluye:
+interface RunnerProfile {
+  id: string;
+  name: string | null;
+  age: number | null;
+  weight: number | null;
+  height: number | null;
+  yearsRunning: number | null;
+  weeklyKm: number | null;
+  pb5k: string | null;
+  pb10k: string | null;
+  pbHalfMarathon: string | null;
+  pbMarathon: string | null;
+  currentGoal: string | null;
+  targetRace: string | null;
+  targetDate: string | null;
+  targetTime: string | null;
+  injuries: string | null;
+  healthNotes: string | null;
+  preferredTerrain: string | null;
+  availableDays: string | null;
+  maxTimePerSession: number | null;
+  coachNotes: string | null;
+}
+
+const buildSystemPrompt = (profile: RunnerProfile | null) => {
+  let basePrompt = `Eres un entrenador experto en running y un asistente especializado en todo lo relacionado con el mundo del running. Tu conocimiento incluye:
 
 - Planes de entrenamiento personalizados (5K, 10K, media maratón, maratón, trail)
 - Técnica de carrera y biomecánica
@@ -20,7 +45,77 @@ const RUNNING_SYSTEM_PROMPT = `Eres un entrenador experto en running y un asiste
 
 Responde de forma clara, práctica y motivadora. Cuando des planes o consejos, sé específico con tiempos, distancias y ritmos cuando sea apropiado. Si el usuario te comparte datos de sus entrenamientos, analízalos y ofrece feedback constructivo.
 
-Siempre prioriza la salud y seguridad del corredor. Si detectas signos de sobreentrenamiento o lesión potencial, advierte al usuario.`;
+Siempre prioriza la salud y seguridad del corredor. Si detectas signos de sobreentrenamiento o lesión potencial, advierte al usuario.
+
+IMPORTANTE: Cuando el usuario te comparta información personal relevante (marcas, objetivos, lesiones, datos físicos, preferencias de entrenamiento), debes incluir al FINAL de tu respuesta un bloque especial con formato:
+
+[GUARDAR_PERFIL]
+campo: valor
+campo2: valor2
+[/GUARDAR_PERFIL]
+
+Los campos disponibles son:
+- name: nombre del corredor
+- age: edad en años
+- weight: peso en kg
+- height: altura en cm
+- yearsRunning: años corriendo
+- weeklyKm: km semanales habituales
+- pb5k: marca personal 5K (formato "MM:SS")
+- pb10k: marca personal 10K
+- pbHalfMarathon: marca personal media maratón
+- pbMarathon: marca personal maratón
+- currentGoal: objetivo actual
+- targetRace: carrera objetivo
+- targetTime: tiempo objetivo
+- injuries: lesiones (pasadas o actuales)
+- healthNotes: notas de salud relevantes
+- preferredTerrain: terreno preferido (asfalto/trail/mixto)
+- availableDays: días disponibles para entrenar
+- maxTimePerSession: tiempo máximo por sesión en minutos
+- coachNotes: notas adicionales importantes sobre el corredor
+
+Solo incluye este bloque cuando el usuario proporcione información nueva o actualizada. No lo incluyas en cada respuesta.`;
+
+  // Añadir información del perfil si existe
+  if (profile) {
+    const profileInfo: string[] = [];
+
+    if (profile.name) profileInfo.push(`Nombre: ${profile.name}`);
+    if (profile.age) profileInfo.push(`Edad: ${profile.age} años`);
+    if (profile.weight) profileInfo.push(`Peso: ${profile.weight} kg`);
+    if (profile.height) profileInfo.push(`Altura: ${profile.height} cm`);
+    if (profile.yearsRunning) profileInfo.push(`Experiencia: ${profile.yearsRunning} años corriendo`);
+    if (profile.weeklyKm) profileInfo.push(`Volumen semanal habitual: ${profile.weeklyKm} km`);
+
+    const pbs: string[] = [];
+    if (profile.pb5k) pbs.push(`5K: ${profile.pb5k}`);
+    if (profile.pb10k) pbs.push(`10K: ${profile.pb10k}`);
+    if (profile.pbHalfMarathon) pbs.push(`Media maratón: ${profile.pbHalfMarathon}`);
+    if (profile.pbMarathon) pbs.push(`Maratón: ${profile.pbMarathon}`);
+    if (pbs.length > 0) profileInfo.push(`Marcas personales: ${pbs.join(', ')}`);
+
+    if (profile.currentGoal) profileInfo.push(`Objetivo actual: ${profile.currentGoal}`);
+    if (profile.targetRace) profileInfo.push(`Carrera objetivo: ${profile.targetRace}`);
+    if (profile.targetDate) profileInfo.push(`Fecha objetivo: ${profile.targetDate}`);
+    if (profile.targetTime) profileInfo.push(`Tiempo objetivo: ${profile.targetTime}`);
+
+    if (profile.injuries) profileInfo.push(`Lesiones: ${profile.injuries}`);
+    if (profile.healthNotes) profileInfo.push(`Notas de salud: ${profile.healthNotes}`);
+
+    if (profile.preferredTerrain) profileInfo.push(`Terreno preferido: ${profile.preferredTerrain}`);
+    if (profile.availableDays) profileInfo.push(`Días disponibles: ${profile.availableDays}`);
+    if (profile.maxTimePerSession) profileInfo.push(`Tiempo máximo por sesión: ${profile.maxTimePerSession} minutos`);
+
+    if (profile.coachNotes) profileInfo.push(`Notas del entrenador: ${profile.coachNotes}`);
+
+    if (profileInfo.length > 0) {
+      basePrompt += `\n\n--- PERFIL DEL CORREDOR ---\n${profileInfo.join('\n')}\n--- FIN DEL PERFIL ---\n\nUsa esta información para personalizar tus respuestas y dar consejos específicos para este corredor.`;
+    }
+  }
+
+  return basePrompt;
+};
 
 interface Conversation {
   id: string;
@@ -49,6 +144,8 @@ export default function RunningChatComponent({ conversationId, onConversationCre
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId || null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [profile, setProfile] = useState<RunnerProfile | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [showReasoning, setShowReasoning] = useState<Record<number, boolean>>({});
@@ -56,6 +153,7 @@ export default function RunningChatComponent({ conversationId, onConversationCre
 
   useEffect(() => {
     loadConversations();
+    loadProfile();
   }, []);
 
   useEffect(() => {
@@ -67,6 +165,66 @@ export default function RunningChatComponent({ conversationId, onConversationCre
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const loadProfile = async () => {
+    try {
+      const res = await fetch('/api/runner-profile');
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data);
+      }
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    }
+  };
+
+  const updateProfile = async (updates: Partial<RunnerProfile>) => {
+    try {
+      const res = await fetch('/api/runner-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data);
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error);
+    }
+  };
+
+  const parseProfileUpdates = (response: string): Partial<RunnerProfile> | null => {
+    const match = response.match(/\[GUARDAR_PERFIL\]([\s\S]*?)\[\/GUARDAR_PERFIL\]/);
+    if (!match) return null;
+
+    const updates: Record<string, string | number> = {};
+    const lines = match[1].trim().split('\n');
+
+    for (const line of lines) {
+      const [key, ...valueParts] = line.split(':');
+      if (key && valueParts.length > 0) {
+        const cleanKey = key.trim();
+        const value = valueParts.join(':').trim();
+
+        // Convert numeric fields
+        if (['age', 'weight', 'height', 'yearsRunning', 'weeklyKm', 'maxTimePerSession'].includes(cleanKey)) {
+          const numValue = parseFloat(value);
+          if (!isNaN(numValue)) {
+            updates[cleanKey] = numValue;
+          }
+        } else {
+          updates[cleanKey] = value;
+        }
+      }
+    }
+
+    return Object.keys(updates).length > 0 ? updates : null;
+  };
+
+  const cleanResponse = (response: string): string => {
+    return response.replace(/\[GUARDAR_PERFIL\][\s\S]*?\[\/GUARDAR_PERFIL\]/g, '').trim();
+  };
 
   const loadConversations = async () => {
     try {
@@ -164,8 +322,9 @@ export default function RunningChatComponent({ conversationId, onConversationCre
     }
 
     try {
+      const systemPrompt = buildSystemPrompt(profile);
       const apiMessages = [
-        { role: 'system', content: RUNNING_SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         ...newMessages.map(msg => ({ role: msg.role, content: msg.content }))
       ];
 
@@ -215,9 +374,10 @@ export default function RunningChatComponent({ conversationId, onConversationCre
             if (parsed.reasoning) {
               assistantReasoning += parsed.reasoning;
             }
+            // Show cleaned response (without profile tags)
             setMessages([...newMessages, {
               role: 'assistant',
-              content: assistantContent,
+              content: cleanResponse(assistantContent),
               reasoning: assistantReasoning
             }]);
           } catch {
@@ -226,9 +386,25 @@ export default function RunningChatComponent({ conversationId, onConversationCre
         }
       }
 
-      if (convId && assistantContent) {
-        await saveMessage(convId, 'assistant', assistantContent);
+      // Check for profile updates in the response
+      const profileUpdates = parseProfileUpdates(assistantContent);
+      if (profileUpdates) {
+        await updateProfile(profileUpdates);
       }
+
+      // Save cleaned response
+      const cleanedContent = cleanResponse(assistantContent);
+      if (convId && cleanedContent) {
+        await saveMessage(convId, 'assistant', cleanedContent);
+      }
+
+      // Update final message with cleaned content
+      setMessages([...newMessages, {
+        role: 'assistant',
+        content: cleanedContent,
+        reasoning: assistantReasoning
+      }]);
+
     } catch (error) {
       console.error('Error:', error);
       setMessages([
@@ -262,6 +438,8 @@ export default function RunningChatComponent({ conversationId, onConversationCre
     { icon: '🤕', text: 'Prevenir lesiones', prompt: '¿Qué ejercicios me recomiendas para prevenir lesiones?' },
     { icon: '🍎', text: 'Nutrición running', prompt: '¿Qué debo comer antes y después de correr?' },
   ];
+
+  const hasProfileData = profile && (profile.name || profile.currentGoal || profile.pb5k || profile.pb10k);
 
   return (
     <div className="flex h-full bg-gray-50 dark:bg-gray-900">
@@ -309,6 +487,91 @@ export default function RunningChatComponent({ conversationId, onConversationCre
         </div>
       </div>
 
+      {/* Sidebar de perfil */}
+      <div className={`${showProfile ? 'w-80' : 'w-0'} transition-all duration-300 overflow-hidden border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col`}>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            Mi Perfil de Corredor
+          </h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {profile ? (
+            <div className="space-y-4 text-sm">
+              {/* Datos personales */}
+              <div>
+                <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Datos personales</h4>
+                <div className="space-y-1 text-gray-600 dark:text-gray-400">
+                  <p><span className="font-medium">Nombre:</span> {profile.name || '-'}</p>
+                  <p><span className="font-medium">Edad:</span> {profile.age ? `${profile.age} años` : '-'}</p>
+                  <p><span className="font-medium">Peso:</span> {profile.weight ? `${profile.weight} kg` : '-'}</p>
+                  <p><span className="font-medium">Altura:</span> {profile.height ? `${profile.height} cm` : '-'}</p>
+                </div>
+              </div>
+
+              {/* Experiencia */}
+              <div>
+                <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Experiencia</h4>
+                <div className="space-y-1 text-gray-600 dark:text-gray-400">
+                  <p><span className="font-medium">Años corriendo:</span> {profile.yearsRunning || '-'}</p>
+                  <p><span className="font-medium">Km/semana:</span> {profile.weeklyKm || '-'}</p>
+                </div>
+              </div>
+
+              {/* Marcas */}
+              <div>
+                <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Marcas personales</h4>
+                <div className="space-y-1 text-gray-600 dark:text-gray-400">
+                  <p><span className="font-medium">5K:</span> {profile.pb5k || '-'}</p>
+                  <p><span className="font-medium">10K:</span> {profile.pb10k || '-'}</p>
+                  <p><span className="font-medium">Media:</span> {profile.pbHalfMarathon || '-'}</p>
+                  <p><span className="font-medium">Maratón:</span> {profile.pbMarathon || '-'}</p>
+                </div>
+              </div>
+
+              {/* Objetivos */}
+              <div>
+                <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Objetivos</h4>
+                <div className="space-y-1 text-gray-600 dark:text-gray-400">
+                  <p><span className="font-medium">Objetivo:</span> {profile.currentGoal || '-'}</p>
+                  <p><span className="font-medium">Carrera:</span> {profile.targetRace || '-'}</p>
+                  <p><span className="font-medium">Tiempo objetivo:</span> {profile.targetTime || '-'}</p>
+                </div>
+              </div>
+
+              {/* Salud */}
+              {(profile.injuries || profile.healthNotes) && (
+                <div>
+                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Salud</h4>
+                  <div className="space-y-1 text-gray-600 dark:text-gray-400">
+                    {profile.injuries && <p><span className="font-medium">Lesiones:</span> {profile.injuries}</p>}
+                    {profile.healthNotes && <p><span className="font-medium">Notas:</span> {profile.healthNotes}</p>}
+                  </div>
+                </div>
+              )}
+
+              {/* Notas del coach */}
+              {profile.coachNotes && (
+                <div>
+                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Notas del entrenador</h4>
+                  <p className="text-gray-600 dark:text-gray-400 text-xs whitespace-pre-wrap bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                    {profile.coachNotes}
+                  </p>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-400 italic pt-2">
+                El perfil se actualiza automáticamente cuando compartes información en el chat.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-4">Cargando perfil...</p>
+          )}
+        </div>
+      </div>
+
       {/* Chat principal */}
       <div className="flex-1 flex flex-col">
         {/* Messages Container */}
@@ -319,9 +582,20 @@ export default function RunningChatComponent({ conversationId, onConversationCre
                 <span className="text-4xl">🏃</span>
               </div>
               <p className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Running Coach</p>
-              <p className="text-sm text-center mb-8 max-w-md">
+              <p className="text-sm text-center mb-4 max-w-md">
                 Tu entrenador personal de running con IA. Pregúntame sobre planes de entrenamiento, técnica, nutrición, lesiones y más.
               </p>
+              {hasProfileData && (
+                <div className="mb-6 px-4 py-2 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                  <p className="text-sm text-green-700 dark:text-green-300 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Perfil cargado: {profile?.name || 'Corredor'}
+                    {profile?.currentGoal && ` - ${profile.currentGoal}`}
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3 max-w-lg">
                 {quickPrompts.map((item, idx) => (
                   <button
@@ -410,7 +684,7 @@ export default function RunningChatComponent({ conversationId, onConversationCre
           <div className="max-w-3xl mx-auto">
             <div className="flex gap-2 sm:gap-3 items-center">
               <button
-                onClick={() => setShowHistory(!showHistory)}
+                onClick={() => { setShowHistory(!showHistory); setShowProfile(false); }}
                 className={`p-2.5 sm:p-3 rounded-xl transition-all ${
                   showHistory
                     ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800'
@@ -420,6 +694,20 @@ export default function RunningChatComponent({ conversationId, onConversationCre
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+
+              <button
+                onClick={() => { setShowProfile(!showProfile); setShowHistory(false); }}
+                className={`p-2.5 sm:p-3 rounded-xl transition-all ${
+                  showProfile
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800'
+                    : 'bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600'
+                }`}
+                title="Mi Perfil"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
               </button>
 
