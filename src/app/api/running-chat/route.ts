@@ -138,12 +138,69 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
-    // Acumuladores para tool calls
-    let toolCallId = '';
-    let toolCallName = '';
-    let toolCallArgs = '';
-    let isToolCall = false;
-    let contentBuffer = '';
+    // Helper para procesar stream
+    async function processStream(
+      reader: ReadableStreamDefaultReader<Uint8Array>,
+      controller: ReadableStreamDefaultController<Uint8Array>,
+      collectToolCall: boolean
+    ): Promise<{ toolCallId: string; toolCallName: string; toolCallArgs: string; contentBuffer: string } | null> {
+      let toolCallId = '';
+      let toolCallName = '';
+      let toolCallArgs = '';
+      let contentBuffer = '';
+      let hasToolCall = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith(':')) continue;
+
+          if (trimmed.startsWith('data: ')) {
+            const data = trimmed.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta;
+              const finishReason = parsed.choices?.[0]?.finish_reason;
+
+              // Detectar tool calls
+              if (collectToolCall && delta?.tool_calls) {
+                hasToolCall = true;
+                for (const tc of delta.tool_calls) {
+                  if (tc.id) toolCallId = tc.id;
+                  if (tc.function?.name) toolCallName = tc.function.name;
+                  if (tc.function?.arguments) toolCallArgs += tc.function.arguments;
+                }
+              }
+
+              // Contenido normal - enviarlo al cliente
+              if (delta?.content) {
+                contentBuffer += delta.content;
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: delta.content })}\n\n`));
+              }
+
+              // Si terminó con tool_calls, retornar los datos
+              if (finishReason === 'tool_calls' && hasToolCall) {
+                reader.releaseLock();
+                return { toolCallId, toolCallName, toolCallArgs, contentBuffer };
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+
+      reader.releaseLock();
+      return null;
+    }
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -154,151 +211,68 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+          // Procesar primera respuesta
+          const toolCallData = await processStream(reader, controller, true);
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+          // Si hubo tool call, ejecutarlo y hacer segunda llamada
+          if (toolCallData && toolCallData.toolCallArgs) {
+            try {
+              const args = JSON.parse(toolCallData.toolCallArgs);
+              await executeProfileSave(args);
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed.startsWith(':')) continue;
+              // Notificar que se guardó el perfil
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                profileSaved: true,
+                savedFields: Object.keys(args)
+              })}\n\n`));
 
-              if (trimmed.startsWith('data: ')) {
-                const data = trimmed.slice(6);
-                if (data === '[DONE]') {
-                  // Si hubo tool call, ejecutarlo
-                  if (isToolCall && toolCallArgs) {
-                    try {
-                      const args = JSON.parse(toolCallArgs);
-                      const result = await executeProfileSave(args);
-
-                      // Notificar al cliente que se guardó el perfil
-                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                        profileSaved: true,
-                        savedFields: Object.keys(args)
-                      })}\n\n`));
-                    } catch (e) {
-                      console.error('Error parsing tool args:', e);
-                    }
-                  }
-                  controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                  continue;
+              // Hacer segunda llamada al modelo con el resultado del tool
+              const continueMessages = [
+                ...messages,
+                {
+                  role: 'assistant',
+                  content: toolCallData.contentBuffer || null,
+                  tool_calls: [{
+                    id: toolCallData.toolCallId,
+                    type: 'function',
+                    function: { name: toolCallData.toolCallName, arguments: toolCallData.toolCallArgs }
+                  }]
+                },
+                {
+                  role: 'tool',
+                  tool_call_id: toolCallData.toolCallId,
+                  content: JSON.stringify({ success: true, message: 'Perfil guardado correctamente' })
                 }
+              ];
 
-                try {
-                  const parsed = JSON.parse(data);
-                  const delta = parsed.choices?.[0]?.delta;
-                  const finishReason = parsed.choices?.[0]?.finish_reason;
+              const continueResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                  'Content-Type': 'application/json',
+                  'HTTP-Referer': 'http://localhost:3000',
+                  'X-Title': 'OpenRouter Running Coach',
+                },
+                body: JSON.stringify({
+                  model,
+                  messages: continueMessages,
+                  temperature,
+                  stream: true,
+                }),
+              });
 
-                  // Detectar tool calls
-                  if (delta?.tool_calls) {
-                    isToolCall = true;
-                    for (const tc of delta.tool_calls) {
-                      if (tc.id) toolCallId = tc.id;
-                      if (tc.function?.name) toolCallName = tc.function.name;
-                      if (tc.function?.arguments) toolCallArgs += tc.function.arguments;
-                    }
-                  }
-
-                  // Contenido normal
-                  if (delta?.content) {
-                    contentBuffer += delta.content;
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: delta.content })}\n\n`));
-                  }
-
-                  // Si finish_reason es tool_calls, procesar el tool
-                  if (finishReason === 'tool_calls' && toolCallArgs) {
-                    try {
-                      const args = JSON.parse(toolCallArgs);
-                      const result = await executeProfileSave(args);
-
-                      // Hacer segunda llamada al modelo con el resultado del tool
-                      const continueMessages = [
-                        ...messages,
-                        {
-                          role: 'assistant',
-                          content: contentBuffer || null,
-                          tool_calls: [{
-                            id: toolCallId,
-                            type: 'function',
-                            function: { name: toolCallName, arguments: toolCallArgs }
-                          }]
-                        },
-                        {
-                          role: 'tool',
-                          tool_call_id: toolCallId,
-                          content: JSON.stringify(result)
-                        }
-                      ];
-
-                      // Segunda llamada para obtener respuesta final
-                      const continueResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                          'Content-Type': 'application/json',
-                          'HTTP-Referer': 'http://localhost:3000',
-                          'X-Title': 'OpenRouter Running Coach',
-                        },
-                        body: JSON.stringify({
-                          model,
-                          messages: continueMessages,
-                          temperature,
-                          stream: true,
-                        }),
-                      });
-
-                      if (continueResponse.ok) {
-                        const continueReader = continueResponse.body?.getReader();
-                        if (continueReader) {
-                          // Notificar que se guardó el perfil
-                          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                            profileSaved: true,
-                            savedFields: Object.keys(args)
-                          })}\n\n`));
-
-                          while (true) {
-                            const { done: contDone, value: contValue } = await continueReader.read();
-                            if (contDone) break;
-
-                            const contChunk = decoder.decode(contValue, { stream: true });
-                            const contLines = contChunk.split('\n');
-
-                            for (const contLine of contLines) {
-                              const contTrimmed = contLine.trim();
-                              if (!contTrimmed.startsWith('data: ')) continue;
-
-                              const contData = contTrimmed.slice(6);
-                              if (contData === '[DONE]') continue;
-
-                              try {
-                                const contParsed = JSON.parse(contData);
-                                const contDelta = contParsed.choices?.[0]?.delta;
-                                if (contDelta?.content) {
-                                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: contDelta.content })}\n\n`));
-                                }
-                              } catch {
-                                // Ignore parse errors
-                              }
-                            }
-                          }
-                          continueReader.releaseLock();
-                        }
-                      }
-                    } catch (e) {
-                      console.error('Error processing tool call:', e);
-                    }
-                  }
-                } catch {
-                  // Ignore parse errors
-                }
+              if (continueResponse.ok && continueResponse.body) {
+                const continueReader = continueResponse.body.getReader();
+                await processStream(continueReader, controller, false);
               }
+            } catch (e) {
+              console.error('Error processing tool call:', e);
             }
           }
+
+          // Enviar done
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } finally {
-          reader.releaseLock();
           controller.close();
         }
       },
