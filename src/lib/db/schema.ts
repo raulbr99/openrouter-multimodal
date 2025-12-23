@@ -68,6 +68,8 @@ export const runnerProfile = pgTable('runner_profile', {
   maxTimePerSession: integer('max_time_per_session'), // minutos
   // Notas adicionales del entrenador AI
   coachNotes: text('coach_notes'), // notas que el AI guarda sobre el usuario
+  // Información adicional flexible (JSONB)
+  additionalInfo: jsonb('additional_info').$type<Record<string, unknown>>(),
   // Timestamps
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

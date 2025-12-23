@@ -53,6 +53,7 @@ export async function PUT(request: NextRequest) {
           availableDays: body.availableDays || null,
           maxTimePerSession: body.maxTimePerSession || null,
           coachNotes: body.coachNotes || null,
+          additionalInfo: body.additionalInfo || null,
         })
         .returning();
       return NextResponse.json(newProfile);
@@ -82,6 +83,7 @@ export async function PUT(request: NextRequest) {
         availableDays: body.availableDays !== undefined ? body.availableDays : profiles[0].availableDays,
         maxTimePerSession: body.maxTimePerSession !== undefined ? body.maxTimePerSession : profiles[0].maxTimePerSession,
         coachNotes: body.coachNotes !== undefined ? body.coachNotes : profiles[0].coachNotes,
+        additionalInfo: body.additionalInfo !== undefined ? body.additionalInfo : profiles[0].additionalInfo,
         updatedAt: new Date(),
       })
       .returning();

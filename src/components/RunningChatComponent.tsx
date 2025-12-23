@@ -27,6 +27,7 @@ interface RunnerProfile {
   availableDays: string | null;
   maxTimePerSession: number | null;
   coachNotes: string | null;
+  additionalInfo: Record<string, unknown> | null;
 }
 
 const buildSystemPrompt = (profile: RunnerProfile | null) => {
@@ -47,35 +48,7 @@ Responde de forma clara, práctica y motivadora. Cuando des planes o consejos, s
 
 Siempre prioriza la salud y seguridad del corredor. Si detectas signos de sobreentrenamiento o lesión potencial, advierte al usuario.
 
-IMPORTANTE: Cuando el usuario te comparta información personal relevante (marcas, objetivos, lesiones, datos físicos, preferencias de entrenamiento), debes incluir al FINAL de tu respuesta un bloque especial con formato:
-
-[GUARDAR_PERFIL]
-campo: valor
-campo2: valor2
-[/GUARDAR_PERFIL]
-
-Los campos disponibles son:
-- name: nombre del corredor
-- age: edad en años
-- weight: peso en kg
-- height: altura en cm
-- yearsRunning: años corriendo
-- weeklyKm: km semanales habituales
-- pb5k: marca personal 5K (formato "MM:SS")
-- pb10k: marca personal 10K
-- pbHalfMarathon: marca personal media maratón
-- pbMarathon: marca personal maratón
-- currentGoal: objetivo actual
-- targetRace: carrera objetivo
-- targetTime: tiempo objetivo
-- injuries: lesiones (pasadas o actuales)
-- healthNotes: notas de salud relevantes
-- preferredTerrain: terreno preferido (asfalto/trail/mixto)
-- availableDays: días disponibles para entrenar
-- maxTimePerSession: tiempo máximo por sesión en minutos
-- coachNotes: notas adicionales importantes sobre el corredor
-
-Solo incluye este bloque cuando el usuario proporcione información nueva o actualizada. No lo incluyas en cada respuesta.`;
+IMPORTANTE: Tienes acceso a una herramienta llamada "save_runner_profile" que te permite guardar información del usuario. Cuando el usuario comparta datos personales, marcas, objetivos, lesiones, equipamiento o cualquier información relevante sobre su perfil como corredor, usa esta herramienta para guardar esa información. Así podrás recordarla en futuras conversaciones.`;
 
   // Añadir información del perfil si existe
   if (profile) {
@@ -109,6 +82,14 @@ Solo incluye este bloque cuando el usuario proporcione información nueva o actu
 
     if (profile.coachNotes) profileInfo.push(`Notas del entrenador: ${profile.coachNotes}`);
 
+    // Información adicional
+    if (profile.additionalInfo && Object.keys(profile.additionalInfo).length > 0) {
+      const additionalLines = Object.entries(profile.additionalInfo)
+        .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+        .join(', ');
+      profileInfo.push(`Información adicional: ${additionalLines}`);
+    }
+
     if (profileInfo.length > 0) {
       basePrompt += `\n\n--- PERFIL DEL CORREDOR ---\n${profileInfo.join('\n')}\n--- FIN DEL PERFIL ---\n\nUsa esta información para personalizar tus respuestas y dar consejos específicos para este corredor.`;
     }
@@ -130,9 +111,7 @@ interface Props {
   onConversationCreated?: (id: string) => void;
 }
 
-interface ChatMessage extends Message {
-  reasoning?: string;
-}
+type ChatMessage = Message;
 
 export default function RunningChatComponent({ conversationId, onConversationCreated }: Props) {
   const { getModelsForCategory } = useModels();
@@ -147,8 +126,6 @@ export default function RunningChatComponent({ conversationId, onConversationCre
   const [showProfile, setShowProfile] = useState(false);
   const [profile, setProfile] = useState<RunnerProfile | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const [showReasoning, setShowReasoning] = useState<Record<number, boolean>>({});
   const [showModelDropdown, setShowModelDropdown] = useState(false);
 
   useEffect(() => {
@@ -178,53 +155,6 @@ export default function RunningChatComponent({ conversationId, onConversationCre
     }
   };
 
-  const updateProfile = async (updates: Partial<RunnerProfile>) => {
-    try {
-      const res = await fetch('/api/runner-profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProfile(data);
-      }
-    } catch (error) {
-      console.error('Error updating profile:', error);
-    }
-  };
-
-  const parseProfileUpdates = (response: string): Partial<RunnerProfile> | null => {
-    const match = response.match(/\[GUARDAR_PERFIL\]([\s\S]*?)\[\/GUARDAR_PERFIL\]/);
-    if (!match) return null;
-
-    const updates: Record<string, string | number> = {};
-    const lines = match[1].trim().split('\n');
-
-    for (const line of lines) {
-      const [key, ...valueParts] = line.split(':');
-      if (key && valueParts.length > 0) {
-        const cleanKey = key.trim();
-        const value = valueParts.join(':').trim();
-
-        // Convert numeric fields
-        if (['age', 'weight', 'height', 'yearsRunning', 'weeklyKm', 'maxTimePerSession'].includes(cleanKey)) {
-          const numValue = parseFloat(value);
-          if (!isNaN(numValue)) {
-            updates[cleanKey] = numValue;
-          }
-        } else {
-          updates[cleanKey] = value;
-        }
-      }
-    }
-
-    return Object.keys(updates).length > 0 ? updates : null;
-  };
-
-  const cleanResponse = (response: string): string => {
-    return response.replace(/\[GUARDAR_PERFIL\][\s\S]*?\[\/GUARDAR_PERFIL\]/g, '').trim();
-  };
 
   const loadConversations = async () => {
     try {
@@ -328,7 +258,7 @@ export default function RunningChatComponent({ conversationId, onConversationCre
         ...newMessages.map(msg => ({ role: msg.role, content: msg.content }))
       ];
 
-      const response = await fetch('/api/chat', {
+      const response = await fetch('/api/running-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -348,9 +278,9 @@ export default function RunningChatComponent({ conversationId, onConversationCre
 
       const decoder = new TextDecoder();
       let assistantContent = '';
-      let assistantReasoning = '';
+      let profileWasSaved = false;
 
-      setMessages([...newMessages, { role: 'assistant', content: '', reasoning: '' }]);
+      setMessages([...newMessages, { role: 'assistant', content: '' }]);
 
       while (true) {
         const { done, value } = await reader.read();
@@ -370,39 +300,35 @@ export default function RunningChatComponent({ conversationId, onConversationCre
             const parsed = JSON.parse(data);
             if (parsed.content) {
               assistantContent += parsed.content;
+              setMessages([...newMessages, {
+                role: 'assistant',
+                content: assistantContent
+              }]);
             }
-            if (parsed.reasoning) {
-              assistantReasoning += parsed.reasoning;
+            // El backend notifica cuando se guardó el perfil
+            if (parsed.profileSaved) {
+              profileWasSaved = true;
             }
-            // Show cleaned response (without profile tags)
-            setMessages([...newMessages, {
-              role: 'assistant',
-              content: cleanResponse(assistantContent),
-              reasoning: assistantReasoning
-            }]);
           } catch {
             // Ignore parse errors
           }
         }
       }
 
-      // Check for profile updates in the response
-      const profileUpdates = parseProfileUpdates(assistantContent);
-      if (profileUpdates) {
-        await updateProfile(profileUpdates);
+      // Recargar el perfil si se actualizó
+      if (profileWasSaved) {
+        await loadProfile();
       }
 
-      // Save cleaned response
-      const cleanedContent = cleanResponse(assistantContent);
-      if (convId && cleanedContent) {
-        await saveMessage(convId, 'assistant', cleanedContent);
+      // Guardar el mensaje
+      if (convId && assistantContent) {
+        await saveMessage(convId, 'assistant', assistantContent);
       }
 
-      // Update final message with cleaned content
+      // Actualizar mensaje final
       setMessages([...newMessages, {
         role: 'assistant',
-        content: cleanedContent,
-        reasoning: assistantReasoning
+        content: assistantContent
       }]);
 
     } catch (error) {
@@ -562,6 +488,21 @@ export default function RunningChatComponent({ conversationId, onConversationCre
                 </div>
               )}
 
+              {/* Información adicional */}
+              {profile.additionalInfo && Object.keys(profile.additionalInfo).length > 0 && (
+                <div>
+                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">Información adicional</h4>
+                  <div className="space-y-1 text-gray-600 dark:text-gray-400 text-xs bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                    {Object.entries(profile.additionalInfo).map(([key, value]) => (
+                      <p key={key}>
+                        <span className="font-medium capitalize">{key.replace(/_/g, ' ')}:</span>{' '}
+                        {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <p className="text-xs text-gray-400 italic pt-2">
                 El perfil se actualiza automáticamente cuando compartes información en el chat.
               </p>
@@ -637,31 +578,9 @@ export default function RunningChatComponent({ conversationId, onConversationCre
                     >
                       {msg.role === 'user' ? (
                         <p className="whitespace-pre-wrap">{msg.content as string}</p>
-                      ) : (msg.content as string) || msg.reasoning ? (
-                        <div>
-                          {msg.reasoning && (
-                            <div className="mb-3">
-                              <button
-                                onClick={() => setShowReasoning(prev => ({ ...prev, [idx]: !prev[idx] }))}
-                                className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 mb-2"
-                              >
-                                <svg className={`w-3 h-3 transition-transform ${showReasoning[idx] ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                                Pensamiento del entrenador
-                              </button>
-                              {showReasoning[idx] && (
-                                <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800 text-sm text-green-800 dark:text-green-200 whitespace-pre-wrap">
-                                  {msg.reasoning}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {(msg.content as string) && (
-                            <div className="prose prose-sm prose-gray dark:prose-invert max-w-none">
-                              <MarkdownRenderer content={msg.content as string} />
-                            </div>
-                          )}
+                      ) : (msg.content as string) ? (
+                        <div className="prose prose-sm prose-gray dark:prose-invert max-w-none">
+                          <MarkdownRenderer content={msg.content as string} />
                         </div>
                       ) : (
                         <div className="flex gap-1 py-2">
