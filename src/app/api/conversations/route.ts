@@ -4,12 +4,18 @@ import { conversations, messages } from '@/lib/db/schema';
 import { desc, eq } from 'drizzle-orm';
 
 // GET - Obtener todas las conversaciones
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const allConversations = await db
-      .select()
-      .from(conversations)
-      .orderBy(desc(conversations.updatedAt));
+    const { searchParams } = new URL(request.url);
+    const category = searchParams.get('category');
+
+    let query = db.select().from(conversations);
+
+    if (category) {
+      query = query.where(eq(conversations.category, category)) as typeof query;
+    }
+
+    const allConversations = await query.orderBy(desc(conversations.updatedAt));
 
     return NextResponse.json(allConversations);
   } catch (error) {
@@ -21,11 +27,11 @@ export async function GET() {
 // POST - Crear nueva conversación
 export async function POST(request: NextRequest) {
   try {
-    const { title, model } = await request.json();
+    const { title, model, category } = await request.json();
 
     const [newConversation] = await db
       .insert(conversations)
-      .values({ title, model })
+      .values({ title, model, category: category || 'general' })
       .returning();
 
     return NextResponse.json(newConversation);

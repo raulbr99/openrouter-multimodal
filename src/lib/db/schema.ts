@@ -5,6 +5,7 @@ export const conversations = pgTable('conversations', {
   id: uuid('id').primaryKey().defaultRandom(),
   title: text('title').notNull().default('Nueva conversación'),
   model: text('model').notNull(),
+  category: text('category').default('general'), // 'general' | 'running'
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
