@@ -304,13 +304,19 @@ export async function POST(request: NextRequest) {
       let toolCallArgs = '';
       let contentBuffer = '';
       let hasToolCall = false;
+      let lineBuffer = ''; // Buffer para líneas incompletas
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        // Combinar con el buffer de línea anterior
+        const combined = lineBuffer + chunk;
+        const lines = combined.split('\n');
+
+        // La última línea puede estar incompleta, guardarla en el buffer
+        lineBuffer = lines.pop() || '';
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -348,6 +354,26 @@ export async function POST(request: NextRequest) {
               }
             } catch {
               // Ignore parse errors
+            }
+          }
+        }
+      }
+
+      // Procesar cualquier línea restante en el buffer
+      if (lineBuffer.trim()) {
+        const trimmed = lineBuffer.trim();
+        if (trimmed.startsWith('data: ')) {
+          const data = trimmed.slice(6);
+          if (data !== '[DONE]') {
+            try {
+              const parsed = JSON.parse(data);
+              const finishReason = parsed.choices?.[0]?.finish_reason;
+              if (finishReason === 'tool_calls' && hasToolCall) {
+                reader.releaseLock();
+                return { toolCallId, toolCallName, toolCallArgs, contentBuffer };
+              }
+            } catch {
+              // Ignore
             }
           }
         }
