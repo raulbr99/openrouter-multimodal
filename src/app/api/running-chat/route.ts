@@ -254,6 +254,67 @@ async function executeTool(name: string, args: Record<string, unknown>) {
   }
 }
 
+// Detectar tool calls en el contenido de texto (fallback para modelos que no usan tools bien)
+function extractToolCallFromText(content: string): { name: string; args: Record<string, unknown> } | null {
+  // Buscar patrones como create_running_event con JSON
+  const patterns = [
+    /create_running_event[^{]*(\{[^}]+\})/i,
+    /save_runner_profile[^{]*(\{[^}]+\})/i,
+    /get_running_events[^{]*(\{[^}]+\})/i,
+  ];
+
+  const toolNames = ['create_running_event', 'save_runner_profile', 'get_running_events'];
+
+  for (let i = 0; i < patterns.length; i++) {
+    const match = content.match(patterns[i]);
+    if (match && match[1]) {
+      try {
+        // Limpiar el JSON
+        let jsonStr = match[1];
+        // Asegurar que las claves tengan comillas
+        jsonStr = jsonStr.replace(/(\w+):/g, '"$1":');
+        // Asegurar que los valores string tengan comillas
+        jsonStr = jsonStr.replace(/:([^",\d\[\]{][^,}\]]*)/g, ':"$1"');
+        // Limpiar comillas dobles duplicadas
+        jsonStr = jsonStr.replace(/""+/g, '"');
+
+        const args = JSON.parse(jsonStr);
+        return { name: toolNames[i], args };
+      } catch {
+        // Si falla el parse, buscar un JSON más simple en el contenido
+        const simpleJsonMatch = content.match(/\{"date"[^}]+\}/);
+        if (simpleJsonMatch) {
+          try {
+            const args = JSON.parse(simpleJsonMatch[0]);
+            if (args.date && args.type) {
+              return { name: 'create_running_event', args };
+            }
+          } catch {
+            // Ignorar
+          }
+        }
+      }
+    }
+  }
+
+  // Buscar cualquier JSON con campos de evento
+  const jsonMatches = content.match(/\{[^{}]*"date"[^{}]*"type"[^{}]*\}/g);
+  if (jsonMatches) {
+    for (const jsonStr of jsonMatches) {
+      try {
+        const args = JSON.parse(jsonStr);
+        if (args.date && args.type) {
+          return { name: 'create_running_event', args };
+        }
+      } catch {
+        // Ignorar
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const {
@@ -298,7 +359,7 @@ export async function POST(request: NextRequest) {
       reader: ReadableStreamDefaultReader<Uint8Array>,
       controller: ReadableStreamDefaultController<Uint8Array>,
       collectToolCall: boolean
-    ): Promise<{ toolCallId: string; toolCallName: string; toolCallArgs: string; contentBuffer: string } | null> {
+    ): Promise<{ toolCallId: string; toolCallName: string; toolCallArgs: string; contentBuffer: string; hasToolCall: boolean }> {
       let toolCallId = '';
       let toolCallName = '';
       let toolCallArgs = '';
@@ -350,7 +411,7 @@ export async function POST(request: NextRequest) {
               // Si terminó con tool_calls, retornar los datos
               if (finishReason === 'tool_calls' && hasToolCall) {
                 reader.releaseLock();
-                return { toolCallId, toolCallName, toolCallArgs, contentBuffer };
+                return { toolCallId, toolCallName, toolCallArgs, contentBuffer, hasToolCall: true };
               }
             } catch {
               // Ignore parse errors
@@ -370,7 +431,7 @@ export async function POST(request: NextRequest) {
               const finishReason = parsed.choices?.[0]?.finish_reason;
               if (finishReason === 'tool_calls' && hasToolCall) {
                 reader.releaseLock();
-                return { toolCallId, toolCallName, toolCallArgs, contentBuffer };
+                return { toolCallId, toolCallName, toolCallArgs, contentBuffer, hasToolCall: true };
               }
             } catch {
               // Ignore
@@ -380,7 +441,7 @@ export async function POST(request: NextRequest) {
       }
 
       reader.releaseLock();
-      return null;
+      return { toolCallId, toolCallName, toolCallArgs, contentBuffer, hasToolCall };
     }
 
     const stream = new ReadableStream({
@@ -395,11 +456,27 @@ export async function POST(request: NextRequest) {
           // Procesar primera respuesta
           const toolCallData = await processStream(reader, controller, true);
 
+          // Detectar si hay tool call (ya sea por mecanismo oficial o en el texto)
+          let toolName = toolCallData.toolCallName;
+          let toolArgs = toolCallData.toolCallArgs;
+          let hasToolCall = toolCallData.hasToolCall;
+
+          // Fallback: si el modelo escribió el tool call en el texto
+          if (!hasToolCall && toolCallData.contentBuffer) {
+            const extractedTool = extractToolCallFromText(toolCallData.contentBuffer);
+            if (extractedTool) {
+              toolName = extractedTool.name;
+              toolArgs = JSON.stringify(extractedTool.args);
+              hasToolCall = true;
+              console.log('Tool call extraído del texto:', extractedTool.name);
+            }
+          }
+
           // Si hubo tool call, ejecutarlo y hacer segunda llamada
-          if (toolCallData && toolCallData.toolCallArgs) {
+          if (hasToolCall && toolArgs) {
             try {
               // Limpiar argumentos - algunos modelos añaden caracteres extra
-              let cleanArgs = toolCallData.toolCallArgs.trim();
+              let cleanArgs = toolArgs.trim();
 
               // Encontrar el JSON válido (desde { hasta el último })
               const firstBrace = cleanArgs.indexOf('{');
@@ -415,59 +492,65 @@ export async function POST(request: NextRequest) {
                 console.error('Error parsing tool args:', cleanArgs);
                 console.error('Parse error:', parseError);
                 // Intentar con los argumentos originales por si acaso
-                args = JSON.parse(toolCallData.toolCallArgs);
+                args = JSON.parse(toolArgs);
               }
 
-              const toolResult = await executeTool(toolCallData.toolCallName, args);
+              const toolResult = await executeTool(toolName, args);
 
               // Notificar al cliente según el tipo de tool
-              const notification: Record<string, unknown> = { toolExecuted: toolCallData.toolCallName };
-              if (toolCallData.toolCallName === 'save_runner_profile') {
+              const notification: Record<string, unknown> = { toolExecuted: toolName };
+              if (toolName === 'save_runner_profile') {
                 notification.profileSaved = true;
                 notification.savedFields = Object.keys(args);
-              } else if (toolCallData.toolCallName === 'create_running_event') {
+              } else if (toolName === 'create_running_event') {
                 notification.eventCreated = true;
               }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(notification)}\n\n`));
 
-              // Hacer segunda llamada al modelo con el resultado del tool
-              const continueMessages = [
-                ...messages,
-                {
-                  role: 'assistant',
-                  content: toolCallData.contentBuffer || null,
-                  tool_calls: [{
-                    id: toolCallData.toolCallId,
-                    type: 'function',
-                    function: { name: toolCallData.toolCallName, arguments: toolCallData.toolCallArgs }
-                  }]
-                },
-                {
-                  role: 'tool',
-                  tool_call_id: toolCallData.toolCallId,
-                  content: JSON.stringify(toolResult)
+              // Si el tool fue extraído del texto, no hacer segunda llamada (ya se mostró la respuesta)
+              if (!toolCallData.hasToolCall) {
+                // Tool extraído del texto - ya tenemos respuesta, solo ejecutamos el tool
+                console.log('Tool ejecutado desde texto, resultado:', toolResult);
+              } else {
+                // Hacer segunda llamada al modelo con el resultado del tool
+                const continueMessages = [
+                  ...messages,
+                  {
+                    role: 'assistant',
+                    content: toolCallData.contentBuffer || null,
+                    tool_calls: [{
+                      id: toolCallData.toolCallId || 'fallback_id',
+                      type: 'function',
+                      function: { name: toolName, arguments: toolArgs }
+                    }]
+                  },
+                  {
+                    role: 'tool',
+                    tool_call_id: toolCallData.toolCallId || 'fallback_id',
+                    content: JSON.stringify(toolResult)
+                  }
+                ];
+
+                const continueResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': 'http://localhost:3000',
+                    'X-Title': 'OpenRouter Running Coach',
+                  },
+                  body: JSON.stringify({
+                    model,
+                    messages: continueMessages,
+                    temperature,
+                    stream: true,
+                  }),
+                });
+
+                if (continueResponse.ok && continueResponse.body) {
+                  const continueReader = continueResponse.body.getReader();
+                  await processStream(continueReader, controller, false);
                 }
-              ];
-
-              const continueResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                  'Content-Type': 'application/json',
-                  'HTTP-Referer': 'http://localhost:3000',
-                  'X-Title': 'OpenRouter Running Coach',
-                },
-                body: JSON.stringify({
-                  model,
-                  messages: continueMessages,
-                  temperature,
-                  stream: true,
-                }),
-              });
-
-              if (continueResponse.ok && continueResponse.body) {
-                const continueReader = continueResponse.body.getReader();
-                await processStream(continueReader, controller, false);
               }
             } catch (e) {
               console.error('Error processing tool call:', e);
