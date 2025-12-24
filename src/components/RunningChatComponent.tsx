@@ -48,7 +48,15 @@ Responde de forma clara, práctica y motivadora. Cuando des planes o consejos, s
 
 Siempre prioriza la salud y seguridad del corredor. Si detectas signos de sobreentrenamiento o lesión potencial, advierte al usuario.
 
-IMPORTANTE: Tienes acceso a una herramienta llamada "save_runner_profile" que te permite guardar información del usuario. Cuando el usuario comparta datos personales, marcas, objetivos, lesiones, equipamiento o cualquier información relevante sobre su perfil como corredor, usa esta herramienta para guardar esa información. Así podrás recordarla en futuras conversaciones.`;
+IMPORTANTE: Tienes acceso a las siguientes herramientas:
+
+1. "save_runner_profile" - Guarda información del perfil del corredor (datos personales, marcas, objetivos, lesiones, equipamiento). Úsala cuando el usuario comparta información relevante.
+
+2. "get_running_events" - Obtiene los entrenamientos y eventos del calendario. Úsala cuando el usuario pregunte por sus entrenamientos planificados, historial, o quiera ver qué tiene programado.
+
+3. "create_running_event" - Crea un nuevo entrenamiento o evento en el calendario. Úsala cuando el usuario quiera planificar entrenamientos, añadir carreras, o programar sesiones. Los tipos de entrenamiento son: easy (rodaje), tempo, interval (series), long (tirada larga), recovery (recuperación), race (carrera), strength (fuerza), rest (descanso).
+
+Usa estas herramientas proactivamente para dar un servicio personalizado. Por ejemplo, si el usuario pregunta "¿qué tengo esta semana?", usa get_running_events. Si dice "ponme un rodaje de 10km el lunes", usa create_running_event.`;
 
   // Añadir información del perfil si existe
   if (profile) {
@@ -279,6 +287,7 @@ export default function RunningChatComponent({ conversationId, onConversationCre
       const decoder = new TextDecoder();
       let assistantContent = '';
       let profileWasSaved = false;
+      let eventCreated = false;
 
       setMessages([...newMessages, { role: 'assistant', content: '' }]);
 
@@ -305,9 +314,12 @@ export default function RunningChatComponent({ conversationId, onConversationCre
                 content: assistantContent
               }]);
             }
-            // El backend notifica cuando se guardó el perfil
+            // El backend notifica cuando se ejecutó un tool
             if (parsed.profileSaved) {
               profileWasSaved = true;
+            }
+            if (parsed.eventCreated) {
+              eventCreated = true;
             }
           } catch {
             // Ignore parse errors
@@ -318,6 +330,11 @@ export default function RunningChatComponent({ conversationId, onConversationCre
       // Recargar el perfil si se actualizó
       if (profileWasSaved) {
         await loadProfile();
+      }
+
+      // Notificar si se creó un evento (para que el usuario sepa que puede verlo en el calendario)
+      if (eventCreated && assistantContent) {
+        // El evento ya está en el mensaje del asistente
       }
 
       // Guardar el mensaje

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
-import { runnerProfile } from '@/lib/db/schema';
+import { runnerProfile, runningEvents } from '@/lib/db/schema';
+import { and, gte, lte, desc } from 'drizzle-orm';
 
 // Definición del tool para guardar perfil
 const saveProfileTool = {
@@ -37,6 +38,52 @@ const saveProfileTool = {
         },
       },
       required: [],
+    },
+  },
+};
+
+// Tool para obtener eventos
+const getEventsTool = {
+  type: 'function' as const,
+  function: {
+    name: 'get_running_events',
+    description: 'Obtiene los eventos y entrenamientos del calendario del corredor. Usa este tool cuando el usuario pregunte por sus entrenamientos, eventos planificados, o quiera ver su calendario.',
+    parameters: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', description: 'Fecha de inicio en formato YYYY-MM-DD (opcional, por defecto últimos 30 días)' },
+        endDate: { type: 'string', description: 'Fecha de fin en formato YYYY-MM-DD (opcional, por defecto hoy + 30 días)' },
+        category: { type: 'string', enum: ['running', 'personal', 'all'], description: 'Categoría de eventos a obtener (por defecto: all)' },
+        limit: { type: 'number', description: 'Límite de eventos a obtener (por defecto: 20)' },
+      },
+      required: [],
+    },
+  },
+};
+
+// Tool para crear evento
+const createEventTool = {
+  type: 'function' as const,
+  function: {
+    name: 'create_running_event',
+    description: 'Crea un nuevo evento o entrenamiento en el calendario. Usa este tool cuando el usuario quiera planificar un entrenamiento, añadir una carrera, o crear cualquier evento relacionado con running.',
+    parameters: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Fecha del evento en formato YYYY-MM-DD (requerido)' },
+        category: { type: 'string', enum: ['running', 'personal'], description: 'Categoría: running para entrenamientos, personal para otros eventos' },
+        type: {
+          type: 'string',
+          description: 'Tipo de evento. Para running: easy (rodaje), tempo, interval (series), long (tirada larga), recovery (recuperación), race (carrera), strength (fuerza), rest (descanso). Para personal: event, appointment, task, reminder, birthday, meeting'
+        },
+        title: { type: 'string', description: 'Título del evento (para carreras o eventos personales)' },
+        time: { type: 'string', description: 'Hora del evento en formato HH:MM (opcional)' },
+        distance: { type: 'number', description: 'Distancia en kilómetros (para entrenamientos)' },
+        duration: { type: 'number', description: 'Duración en minutos' },
+        pace: { type: 'string', description: 'Ritmo objetivo en formato M:SS (ej: 5:30)' },
+        notes: { type: 'string', description: 'Notas adicionales sobre el entrenamiento' },
+      },
+      required: ['date', 'type'],
     },
   },
 };
@@ -99,6 +146,114 @@ async function executeProfileSave(args: Record<string, unknown>) {
   }
 }
 
+// Función para obtener eventos
+async function executeGetEvents(args: Record<string, unknown>) {
+  try {
+    const now = new Date();
+    const defaultStart = new Date(now);
+    defaultStart.setDate(defaultStart.getDate() - 30);
+    const defaultEnd = new Date(now);
+    defaultEnd.setDate(defaultEnd.getDate() + 30);
+
+    const startDate = (args.startDate as string) || defaultStart.toISOString().split('T')[0];
+    const endDate = (args.endDate as string) || defaultEnd.toISOString().split('T')[0];
+    const category = (args.category as string) || 'all';
+    const limit = (args.limit as number) || 20;
+
+    let query = db
+      .select()
+      .from(runningEvents)
+      .where(
+        and(
+          gte(runningEvents.date, startDate),
+          lte(runningEvents.date, endDate)
+        )
+      )
+      .orderBy(runningEvents.date)
+      .limit(limit);
+
+    const events = await query;
+
+    // Filtrar por categoría si no es 'all'
+    const filteredEvents = category === 'all'
+      ? events
+      : events.filter(e => e.category === category);
+
+    return {
+      success: true,
+      events: filteredEvents.map(e => ({
+        id: e.id,
+        date: e.date,
+        category: e.category,
+        type: e.type,
+        title: e.title,
+        time: e.time,
+        distance: e.distance,
+        duration: e.duration,
+        pace: e.pace,
+        notes: e.notes,
+        completed: e.completed === 1,
+      })),
+      count: filteredEvents.length,
+    };
+  } catch (error) {
+    console.error('Error getting events:', error);
+    return { success: false, message: 'Error al obtener eventos', events: [] };
+  }
+}
+
+// Función para crear evento
+async function executeCreateEvent(args: Record<string, unknown>) {
+  try {
+    const [event] = await db
+      .insert(runningEvents)
+      .values({
+        date: args.date as string,
+        category: (args.category as string) || 'running',
+        type: args.type as string,
+        title: (args.title as string) || null,
+        time: (args.time as string) || null,
+        distance: args.distance ? Number(args.distance) : null,
+        duration: args.duration ? Number(args.duration) : null,
+        pace: (args.pace as string) || null,
+        notes: (args.notes as string) || null,
+        completed: 0,
+      })
+      .returning();
+
+    return {
+      success: true,
+      message: 'Evento creado correctamente',
+      event: {
+        id: event.id,
+        date: event.date,
+        category: event.category,
+        type: event.type,
+        title: event.title,
+        distance: event.distance,
+        duration: event.duration,
+      },
+    };
+  } catch (error) {
+    console.error('Error creating event:', error);
+    return { success: false, message: 'Error al crear evento' };
+  }
+}
+
+// Ejecutar tool según nombre
+async function executeTool(name: string, args: Record<string, unknown>) {
+  switch (name) {
+    case 'save_runner_profile':
+      return executeProfileSave(args);
+    case 'get_running_events':
+      return executeGetEvents(args);
+    case 'create_running_event':
+      return executeCreateEvent(args);
+    default:
+      return { success: false, message: `Tool desconocido: ${name}` };
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const {
@@ -111,7 +266,7 @@ export async function POST(request: NextRequest) {
       model,
       messages,
       temperature,
-      tools: [saveProfileTool],
+      tools: [saveProfileTool, getEventsTool, createEventTool],
       tool_choice: 'auto',
       stream: true,
     };
@@ -218,13 +373,17 @@ export async function POST(request: NextRequest) {
           if (toolCallData && toolCallData.toolCallArgs) {
             try {
               const args = JSON.parse(toolCallData.toolCallArgs);
-              await executeProfileSave(args);
+              const toolResult = await executeTool(toolCallData.toolCallName, args);
 
-              // Notificar que se guardó el perfil
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-                profileSaved: true,
-                savedFields: Object.keys(args)
-              })}\n\n`));
+              // Notificar al cliente según el tipo de tool
+              const notification: Record<string, unknown> = { toolExecuted: toolCallData.toolCallName };
+              if (toolCallData.toolCallName === 'save_runner_profile') {
+                notification.profileSaved = true;
+                notification.savedFields = Object.keys(args);
+              } else if (toolCallData.toolCallName === 'create_running_event') {
+                notification.eventCreated = true;
+              }
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(notification)}\n\n`));
 
               // Hacer segunda llamada al modelo con el resultado del tool
               const continueMessages = [
@@ -241,7 +400,7 @@ export async function POST(request: NextRequest) {
                 {
                   role: 'tool',
                   tool_call_id: toolCallData.toolCallId,
-                  content: JSON.stringify({ success: true, message: 'Perfil guardado correctamente' })
+                  content: JSON.stringify(toolResult)
                 }
               ];
 
