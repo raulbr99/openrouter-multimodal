@@ -398,7 +398,26 @@ export async function POST(request: NextRequest) {
           // Si hubo tool call, ejecutarlo y hacer segunda llamada
           if (toolCallData && toolCallData.toolCallArgs) {
             try {
-              const args = JSON.parse(toolCallData.toolCallArgs);
+              // Limpiar argumentos - algunos modelos añaden caracteres extra
+              let cleanArgs = toolCallData.toolCallArgs.trim();
+
+              // Encontrar el JSON válido (desde { hasta el último })
+              const firstBrace = cleanArgs.indexOf('{');
+              const lastBrace = cleanArgs.lastIndexOf('}');
+              if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                cleanArgs = cleanArgs.substring(firstBrace, lastBrace + 1);
+              }
+
+              let args: Record<string, unknown>;
+              try {
+                args = JSON.parse(cleanArgs);
+              } catch (parseError) {
+                console.error('Error parsing tool args:', cleanArgs);
+                console.error('Parse error:', parseError);
+                // Intentar con los argumentos originales por si acaso
+                args = JSON.parse(toolCallData.toolCallArgs);
+              }
+
               const toolResult = await executeTool(toolCallData.toolCallName, args);
 
               // Notificar al cliente según el tipo de tool
